@@ -109,6 +109,10 @@ class LibvirtGenericVIFDriver(object):
                                        {}).get('hw_vif_model')
             if vif_model is not None:
                 model = vif_model
+            disable_csum = image_meta.get('properties',
+                                          {}).get('hw_vif_disable_csum', 'no')
+            if disable_csum.lower() in ('yes', '1', 'true'):
+                conf.disable_csum = True
 
         # Else if the virt type is KVM/QEMU, use virtio according
         # to the global config parameter
@@ -609,6 +613,10 @@ class LibvirtGenericVIFDriver(object):
         func(instance, vif)
 
     def unplug_bridge(self, instance, vif):
+        """No manual unplugging required."""
+        pass
+
+    def unplug_binding_failed(self, instance, vif):
         """No manual unplugging required."""
         pass
 

@@ -104,7 +104,7 @@ class NovaProxyRequestHandlerBase(object):
                 expected_origin_hostname = e.split(']')[0][1:]
             else:
                 expected_origin_hostname = e.split(':')[0]
-        origin_url = self.headers.getheader('Origin')
+        origin_url = None # self.headers.getheader('Origin')
         # missing origin header indicates non-browser client which is OK
         if origin_url is not None:
             origin = urlparse.urlparse(origin_url)
@@ -122,6 +122,8 @@ class NovaProxyRequestHandlerBase(object):
 
         self.msg(_('connect info: %s'), str(connect_info))
         host = connect_info['host']
+        if host == '0.0.0.0' and self.server.target_host not in (None, 'ignore'):
+            host = self.server.target_host
         port = int(connect_info['port'])
 
         # Connect to the target

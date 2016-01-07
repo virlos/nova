@@ -901,7 +901,10 @@ class LibvirtDriver(driver.ComputeDriver):
 
         :param mode: Should be a value in (None, bind, connect)
         """
-        virt_dom = self._host.get_domain(instance)
+        try:
+            virt_dom = self._host.get_domain(instance)
+        except exception.InstanceNotFound:
+            return
         xml = virt_dom.XMLDesc(0)
         tree = etree.fromstring(xml)
 
@@ -2345,7 +2348,7 @@ class LibvirtDriver(driver.ComputeDriver):
                                             instance,
                                             image_meta,
                                             rescue=True)
-        self._create_image(context, instance, disk_info['mapping'],
+        self._create_image(context, instance, image_meta, disk_info['mapping'],
                            suffix='.rescue', disk_images=rescue_images,
                            network_info=network_info,
                            admin_pass=rescue_password)
@@ -2392,7 +2395,7 @@ class LibvirtDriver(driver.ComputeDriver):
                                             instance,
                                             image_meta,
                                             block_device_info)
-        self._create_image(context, instance,
+        self._create_image(context, instance, image_meta,
                            disk_info['mapping'],
                            network_info=network_info,
                            block_device_info=block_device_info,
@@ -2551,9 +2554,14 @@ class LibvirtDriver(driver.ComputeDriver):
 
         return ctype.ConsoleSpice(host=host, port=ports[0], tlsPort=ports[1])
 
-    def get_serial_console(self, context, instance):
+    def get_serial_console(self, context, instance, index=0, at_port=None):
         for hostname, port in self._get_serial_ports_from_instance(
                 instance, mode='bind'):
+            if index > 0:
+                index -= 1
+                continue
+            if at_port is not None and at_port != port:
+                continue
             return ctype.ConsoleSerial(host=hostname, port=port)
         raise exception.ConsoleTypeUnavailable(console_type='serial')
 
@@ -2718,6 +2726,7 @@ class LibvirtDriver(driver.ComputeDriver):
                               instance=instance)
 
     def _create_image(self, context, instance,
+                      image_meta,
                       disk_mapping, suffix='',
                       disk_images=None, network_info=None,
                       block_device_info=None, files=None,
@@ -2870,13 +2879,22 @@ class LibvirtDriver(driver.ComputeDriver):
 
             inst_md = instance_metadata.InstanceMetadata(instance,
                 content=files, extra_md=extra_md, network_info=network_info)
-            with configdrive.ConfigDriveBuilder(instance_md=inst_md) as cdb:
-                configdrive_path = self._get_disk_config_path(instance, suffix)
-                LOG.info(_LI('Creating config drive at %(path)s'),
+            props = image_meta.get('properties', {})
+            disk_type = props.get('config_disk_type', 'cloud-init')
+            with configdrive.ConfigDriveBuilder(
+                disk_type,
+                instance_md=inst_md,
+                files=files) as cdb:
+
+                configdrive_path = self._get_disk_config_path(instance)
+                LOG.info(_('Creating config drive at %(path)s'),
                          {'path': configdrive_path}, instance=instance)
 
                 try:
                     cdb.make_drive(configdrive_path)
+                    mapping = disk_mapping['disk.config']
+                    mapping['type'] = cdb.device_type
+
                 except processutils.ProcessExecutionError as e:
                     with excutils.save_and_reraise_exception():
                         LOG.error(_LE('Creating config drive failed '
@@ -3672,7 +3690,8 @@ class LibvirtDriver(driver.ComputeDriver):
             # qemu -no-hpet is not supported on non-x86 targets.
             tmhpet = vconfig.LibvirtConfigGuestTimer()
             tmhpet.name = "hpet"
-            tmhpet.present = False
+            present = image_meta.get('properties', {}).get('hw_hpet', '')
+            tmhpet.present = strutils.bool_from_string(present)
             clk.add_timer(tmhpet)
 
         # With new enough QEMU we can provide Windows guests
@@ -3729,6 +3748,7 @@ class LibvirtDriver(driver.ComputeDriver):
                     console = vconfig.LibvirtConfigGuestSerial()
                 console.port = port
                 console.type = "tcp"
+                console.protocol_type = "telnet"
                 console.listen_host = (
                     CONF.serial_console.proxyclient_address)
                 console.listen_port = (
@@ -3736,6 +3756,7 @@ class LibvirtDriver(driver.ComputeDriver):
                         console.listen_host))
                 guest.add_device(console)
         else:
+            LOG.error('Serial console is not enabled')
             # The QEMU 'pty' driver throws away any data if no
             # client app is connected. Thus we can't get away
             # with a single type=pty console. Instead we have
@@ -3887,6 +3908,11 @@ class LibvirtDriver(driver.ComputeDriver):
                 flavor.extra_specs.get(
                     'hw:boot_menu', image_meta.get('properties', {}).get(
                         'hw_boot_menu', 'no')))
+            hw_bios = image_meta.get('properties', {}).get('hw_bios')
+            if hw_bios:
+                hw_bios = os.path.basename(hw_bios)
+                guest.os_loader = hw_bios
+
         elif virt_type == "lxc":
             guest.os_init_path = "/sbin/init"
             guest.os_cmdline = CONSOLE
@@ -4080,7 +4106,8 @@ class LibvirtDriver(driver.ComputeDriver):
                                            image_meta, caps)
         if virt_type != 'parallels':
             consolepty.type = "pty"
-            guest.add_device(consolepty)
+            # Only use serial consoles
+            #guest.add_device(consolepty)
 
         # We want a tablet if VNC is enabled, or SPICE is enabled and
         # the SPICE agent is disabled. If the SPICE agent is enabled
@@ -4090,8 +4117,10 @@ class LibvirtDriver(driver.ComputeDriver):
         # NB: this implies that if both SPICE + VNC are enabled
         # at the same time, we'll get the tablet whether the
         # SPICE agent is used or not.
-        need_usb_tablet = False
-        if CONF.vnc_enabled:
+        need_usb_tablet = img_meta_prop.get('hw_usb_tablet', None)
+        if need_usb_tablet is not None:
+            need_usb_tablet = strutils.bool_from_string(need_usb_tablet)
+        elif CONF.vnc_enabled:
             need_usb_tablet = CONF.libvirt.use_usb_tablet
         elif CONF.spice.enabled and not CONF.spice.agent_enabled:
             need_usb_tablet = CONF.libvirt.use_usb_tablet
@@ -6487,7 +6516,7 @@ class LibvirtDriver(driver.ComputeDriver):
                                             image_meta,
                                             block_device_info)
         # assume _create_image do nothing if a target file exists.
-        self._create_image(context, instance, disk_info['mapping'],
+        self._create_image(context, instance, image_meta, disk_info['mapping'],
                            network_info=network_info,
                            block_device_info=None, inject_files=False,
                            fallback_from_host=migration.source_compute)

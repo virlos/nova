@@ -4740,7 +4740,7 @@ class ComputeManager(manager.Manager):
         NotImplementedError)
     @wrap_exception()
     @wrap_instance_fault
-    def get_serial_console(self, context, console_type, instance):
+    def get_serial_console(self, context, console_type, instance, index=0, at_port=None):
         """Returns connection information for a serial console."""
 
         LOG.debug("Getting serial console", instance=instance)
@@ -4756,7 +4756,7 @@ class ComputeManager(manager.Manager):
         try:
             # Retrieve connect info from driver, and then decorate with our
             # access info token
-            console = self.driver.get_serial_console(context, instance)
+            console = self.driver.get_serial_console(context, instance, index=index, at_port=at_port)
             connect_info = console.get_connection_info(token, access_url)
         except exception.InstanceNotFound:
             if instance.vm_state != vm_states.BUILDING:
@@ -4777,7 +4777,7 @@ class ComputeManager(manager.Manager):
         elif console_type == "rdp-html5":
             console_info = self.driver.get_rdp_console(ctxt, instance)
         elif console_type == "serial":
-            console_info = self.driver.get_serial_console(ctxt, instance)
+            console_info = self.driver.get_serial_console(ctxt, instance, at_port=port)
         else:
             console_info = self.driver.get_vnc_console(ctxt, instance)
 
@@ -6787,8 +6787,8 @@ class _ComputeV4Proxy(object):
     def get_rdp_console(self, ctxt, console_type, instance):
         return self.manager.get_rdp_console(ctxt, console_type, instance)
 
-    def get_serial_console(self, ctxt, console_type, instance):
-        return self.manager.get_serial_console(ctxt, console_type, instance)
+    def get_serial_console(self, ctxt, console_type, instance, index=0, at_port=None):
+        return self.manager.get_serial_console(ctxt, console_type, instance, index=index, at_port=at_port)
 
     def validate_console_port(self, ctxt, instance, port, console_type):
         return self.manager.validate_console_port(ctxt, instance, port,

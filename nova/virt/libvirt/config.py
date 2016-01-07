@@ -1138,6 +1138,7 @@ class LibvirtConfigGuestInterface(LibvirtConfigGuestDevice):
         self.vif_outbound_burst = None
         self.vif_outbound_average = None
         self.vlan = None
+        self.disable_csum = False
 
     def format_dom(self):
         dev = super(LibvirtConfigGuestInterface, self).format_dom()
@@ -1149,8 +1150,14 @@ class LibvirtConfigGuestInterface(LibvirtConfigGuestDevice):
         if self.model:
             dev.append(etree.Element("model", type=self.model))
 
-        if self.driver_name:
-            dev.append(etree.Element("driver", name=self.driver_name))
+        if self.driver_name or self.disable_csum:
+            driver_elem = etree.Element("driver")
+            dev.append(driver_elem)
+            if self.driver_name:
+                driver_elem.set("name", self.driver_name)
+            if self.disable_csum:
+                driver_elem.append(etree.Element("host", csum="off"))
+                driver_elem.append(etree.Element("guest", csum="off"))
 
         if self.net_type == "ethernet":
             if self.script is not None:
@@ -1473,6 +1480,15 @@ class LibvirtConfigGuestSerial(LibvirtConfigGuestChar):
     def __init__(self, **kwargs):
         super(LibvirtConfigGuestSerial, self).__init__(root_name="serial",
                                                        **kwargs)
+        self.protocol_type = None
+
+    def format_dom(self):
+        dev = super(LibvirtConfigGuestSerial, self).format_dom()
+        if self.protocol_type is not None:
+            protocol = etree.Element("protocol")
+            protocol.set("type", self.protocol_type)
+            dev.append(protocol)
+        return dev
 
 
 class LibvirtConfigGuestConsole(LibvirtConfigGuestChar):

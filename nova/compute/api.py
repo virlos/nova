@@ -2993,10 +2993,10 @@ class API(base.Base):
 
     @wrap_check_policy
     @check_instance_host
-    def get_serial_console(self, context, instance, console_type):
+    def get_serial_console(self, context, instance, console_type, index=0, at_port=None):
         """Get a url to a serial console."""
         connect_info = self.compute_rpcapi.get_serial_console(context,
-                instance=instance, console_type=console_type)
+                instance=instance, console_type=console_type, index=index, at_port=at_port)
 
         self.consoleauth_rpcapi.authorize_console(context,
                 connect_info['token'], console_type,
@@ -3006,10 +3006,10 @@ class API(base.Base):
         return {'url': connect_info['access_url']}
 
     @check_instance_host
-    def get_serial_console_connect_info(self, context, instance, console_type):
+    def get_serial_console_connect_info(self, context, instance, console_type, index=0):
         """Used in a child cell to get serial console."""
         connect_info = self.compute_rpcapi.get_serial_console(context,
-                instance=instance, console_type=console_type)
+                instance=instance, console_type=console_type, index=index)
         return connect_info
 
     @wrap_check_policy

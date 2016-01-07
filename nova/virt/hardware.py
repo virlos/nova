@@ -185,13 +185,13 @@ def get_number_of_serial_ports(flavor, image_meta):
     image_meta_prop = (image_meta or {}).get('properties', {})
 
     flavor_num_ports = get_number(flavor.extra_specs, "hw:serial_port_count")
-    image_num_ports = get_number(image_meta_prop, "hw_serial_port_count")
+    image_num_ports = (get_number(image_meta_prop, "hw_serial_port_count") or
+                       get_number(image_meta_prop, "serial"))
 
     if (flavor_num_ports and image_num_ports) is not None:
         if image_num_ports > flavor_num_ports:
             raise exception.ImageSerialPortNumberExceedFlavorValue()
         return image_num_ports
-
     return flavor_num_ports or image_num_ports or 1
 
 
