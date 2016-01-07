@@ -546,12 +546,12 @@ class ComputeAPI(object):
         return cctxt.call(ctxt, 'get_rdp_console',
                           instance=instance, console_type=console_type)
 
-    def get_serial_console(self, ctxt, instance, console_type):
+    def get_serial_console(self, ctxt, instance, console_type, index=0, at_port=None):
         version = self._compat_ver('4.0', '3.34')
         cctxt = self.client.prepare(server=_compute_host(None, instance),
                                     version=version)
         return cctxt.call(ctxt, 'get_serial_console',
-                          instance=instance, console_type=console_type)
+                          instance=instance, console_type=console_type, index=index, at_port=at_port)
 
     def validate_console_port(self, ctxt, instance, port, console_type):
         version = self._compat_ver('4.0', '3.3')

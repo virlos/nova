@@ -1408,6 +1408,12 @@ class ConfigDriveMountFailed(NovaException):
                 "Error: %(error)s")
 
 
+class ConfigDriveUnknownFormatEx(NovaException):
+    msg_fmt = _("Unknown config drive format %(format)s. Select one of "
+                "iso9660, vfat, cdrom, disk, cloud-init, "
+                "cloud-init-iso9660, cloud-init-vfat.")
+
+
 class ConfigDriveUnknownFormat(NovaException):
     msg_fmt = _("Unknown config drive format %(format)s. Select one of "
                 "iso9660 or vfat.")
