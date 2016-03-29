@@ -364,6 +364,8 @@ class API(base_api.NetworkAPI):
                 port_req_body['port']['binding:host_id'] = None
             try:
                 port_client.update_port(port_id, port_req_body)
+            except neutron_client_exc.NotFound:
+                pass
             except Exception:
                 LOG.exception(_LE("Unable to clear device ID "
                                   "for port '%s'"), port_id)
