@@ -394,13 +394,13 @@ class ComputeCellsAPI(compute_api.API):
 
     @wrap_check_policy
     @check_instance_cell
-    def get_serial_console(self, context, instance, console_type):
+    def get_serial_console(self, context, instance, console_type, index=0, at_port=None):
         """Get a url to a serial console."""
         if not instance.host:
             raise exception.InstanceNotReady(instance_id=instance.uuid)
 
         connect_info = self._call_to_cells(context, instance,
-                'get_serial_console_connect_info', console_type)
+                'get_serial_console_connect_info', console_type, index=index, at_port=at_port)
 
         self.consoleauth_rpcapi.authorize_console(context,
                 connect_info['token'], console_type, connect_info['host'],

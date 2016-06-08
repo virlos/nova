@@ -136,12 +136,17 @@ class RemoteConsolesController(wsgi.Controller):
         authorize(context)
 
         # If type is not supplied or unknown get_serial_console below will cope
-        console_type = body['os-getSerialConsole'].get('type')
+        key = 'os-getSerialConsole'
+        if key not in body:
+            key = 'os-getSerialPort'
+        console_type = body[key].get('type', 'serial')
+        console_index = int(body[key].get('serial_port', 0))
         try:
             instance = common.get_instance(self.compute_api, context, id)
             output = self.compute_api.get_serial_console(context,
                                                          instance,
-                                                         console_type)
+                                                         console_type,
+                                                         index=console_index)
         except (exception.InstanceUnknownCell,
                      exception.InstanceNotFound) as e:
             raise webob.exc.HTTPNotFound(explanation=e.format_message())
@@ -156,6 +161,14 @@ class RemoteConsolesController(wsgi.Controller):
             common.raise_feature_not_supported()
 
         return {'console': {'type': console_type, 'url': output['url']}}
+
+    @wsgi.Controller.api_version("2.1", "2.5")
+    @extensions.expected_errors((400, 404, 409, 501))
+    @wsgi.action('os-getSerialPort')
+    @validation.schema(remote_consoles.get_serial_port)
+    def get_serial_port(self, req, id, body):
+        """Get connection to a serial console."""
+        return self.get_serial_console(req, id, body)
 
     @wsgi.Controller.api_version("2.6")
     @extensions.expected_errors((400, 404, 409, 501))

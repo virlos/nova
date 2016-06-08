@@ -1166,7 +1166,11 @@ class LibvirtDriver(driver.ComputeDriver):
 
         :param mode: Should be a value in (None, bind, connect)
         """
-        xml = guest.get_xml_desc()
+        try:
+            # cargo-cult copying the try from the virl kilo patches
+            xml = guest.get_xml_desc()
+        except exception.InstanceNotFound:
+            return
         tree = etree.fromstring(xml)
 
         # The 'serial' device is the base for x86 platforms. Other platforms
@@ -2720,7 +2724,7 @@ class LibvirtDriver(driver.ComputeDriver):
                                             instance,
                                             image_meta,
                                             rescue=True)
-        self._create_image(context, instance, disk_info['mapping'],
+        self._create_image(context, instance, image_meta, disk_info['mapping'],
                            suffix='.rescue', disk_images=rescue_images,
                            network_info=network_info,
                            admin_pass=rescue_password)
@@ -2765,7 +2769,7 @@ class LibvirtDriver(driver.ComputeDriver):
                                             instance,
                                             image_meta,
                                             block_device_info)
-        self._create_image(context, instance,
+        self._create_image(context, instance, image_meta,
                            disk_info['mapping'],
                            network_info=network_info,
                            block_device_info=block_device_info,
@@ -2925,10 +2929,15 @@ class LibvirtDriver(driver.ComputeDriver):
 
         return ctype.ConsoleSpice(host=host, port=ports[0], tlsPort=ports[1])
 
-    def get_serial_console(self, context, instance):
+    def get_serial_console(self, context, instance, index=0, at_port=None):
         guest = self._host.get_guest(instance)
         for hostname, port in self._get_serial_ports_from_guest(
                 guest, mode='bind'):
+            if index > 0:
+                index -= 1
+                continue
+            if at_port is not None and at_port != port:
+                continue
             return ctype.ConsoleSerial(host=hostname, port=port)
         raise exception.ConsoleTypeUnavailable(console_type='serial')
 
@@ -3109,6 +3118,7 @@ class LibvirtDriver(driver.ComputeDriver):
     # method doesn't fail if an image already exists but instead
     # think that it will be reused (ie: (live)-migration/resize)
     def _create_image(self, context, instance,
+                      image_meta,
                       disk_mapping, suffix='',
                       disk_images=None, network_info=None,
                       block_device_info=None, files=None,
@@ -3263,13 +3273,22 @@ class LibvirtDriver(driver.ComputeDriver):
 
             inst_md = instance_metadata.InstanceMetadata(instance,
                 content=files, extra_md=extra_md, network_info=network_info)
-            with configdrive.ConfigDriveBuilder(instance_md=inst_md) as cdb:
-                configdrive_path = self._get_disk_config_path(instance, suffix)
-                LOG.info(_LI('Creating config drive at %(path)s'),
+            
+            disk_type = image_meta.properties.get('config_disk_type', 'cloud-init')
+            with configdrive.ConfigDriveBuilder(
+                disk_type,
+                instance_md=inst_md,
+                files=files) as cdb:
+
+                configdrive_path = self._get_disk_config_path(instance)
+                LOG.info(_('Creating config drive at %(path)s'),
                          {'path': configdrive_path}, instance=instance)
 
                 try:
                     cdb.make_drive(configdrive_path)
+                    mapping = disk_mapping['disk.config']
+                    mapping['type'] = cdb.device_type
+
                 except processutils.ProcessExecutionError as e:
                     with excutils.save_and_reraise_exception():
                         LOG.error(_LE('Creating config drive failed '
@@ -4149,7 +4168,8 @@ class LibvirtDriver(driver.ComputeDriver):
             # qemu -no-hpet is not supported on non-x86 targets.
             tmhpet = vconfig.LibvirtConfigGuestTimer()
             tmhpet.name = "hpet"
-            tmhpet.present = False
+            present = image_meta.properties.get('hw_hpet', '')
+            tmhpet.present = strutils.bool_from_string(present)
             clk.add_timer(tmhpet)
 
         # With new enough QEMU we can provide Windows guests
@@ -4206,6 +4226,7 @@ class LibvirtDriver(driver.ComputeDriver):
                     console = vconfig.LibvirtConfigGuestSerial()
                 console.port = port
                 console.type = "tcp"
+                console.protocol_type = "telnet"
                 console.listen_host = (
                     CONF.serial_console.proxyclient_address)
                 console.listen_port = (
@@ -4213,6 +4234,7 @@ class LibvirtDriver(driver.ComputeDriver):
                         console.listen_host))
                 guest.add_device(console)
         else:
+            LOG.error('Serial console is not enabled')
             # The QEMU 'pty' driver throws away any data if no
             # client app is connected. Thus we can't get away
             # with a single type=pty console. Instead we have
@@ -4396,7 +4418,10 @@ class LibvirtDriver(driver.ComputeDriver):
                     flavor.extra_specs.get('hw:boot_menu', 'no'))
             else:
                 guest.os_bootmenu = image_meta.properties.hw_boot_menu
-
+            hw_bios = image_meta.properties.get('hw_bios', None)
+            if hw_bios:
+                hw_bios = os.path.basename(hw_bios)
+                guest.os_loader = hw_bios
         elif virt_type == "lxc":
             guest.os_init_path = "/sbin/init"
             guest.os_cmdline = CONSOLE
@@ -4593,7 +4618,7 @@ class LibvirtDriver(driver.ComputeDriver):
             consolepty.type = "pty"
             guest.add_device(consolepty)
 
-        tablet = self._get_guest_usb_tablet(guest.os_type)
+        tablet = self._get_guest_usb_tablet(guest.os_type, image_meta)
         if tablet:
             guest.add_device(tablet)
 
@@ -4676,7 +4701,7 @@ class LibvirtDriver(driver.ComputeDriver):
 
         return guest
 
-    def _get_guest_usb_tablet(self, os_type):
+    def _get_guest_usb_tablet(self, os_type, image_meta):
         # We want a tablet if VNC is enabled, or SPICE is enabled and
         # the SPICE agent is disabled. If the SPICE agent is enabled
         # it provides a paravirt mouse which drastically reduces
@@ -4685,8 +4710,10 @@ class LibvirtDriver(driver.ComputeDriver):
         # NB: this implies that if both SPICE + VNC are enabled
         # at the same time, we'll get the tablet whether the
         # SPICE agent is used or not.
-        need_usb_tablet = False
-        if CONF.vnc.enabled:
+        need_usb_tablet = image_meta.properties.get('hw_usb_tablet', None)
+        if need_usb_tablet is not None:
+            need_usb_tablet = strutils.bool_from_string(need_usb_tablet)
+        elif CONF.vnc_enabled:
             need_usb_tablet = CONF.libvirt.use_usb_tablet
         elif CONF.spice.enabled and not CONF.spice.agent_enabled:
             need_usb_tablet = CONF.libvirt.use_usb_tablet
@@ -7343,7 +7370,7 @@ class LibvirtDriver(driver.ComputeDriver):
         # assume _create_image does nothing if a target file exists.
         # NOTE: This has the intended side-effect of fetching a missing
         # backing file.
-        self._create_image(context, instance, block_disk_info['mapping'],
+        self._create_image(context, instance, image_meta, block_disk_info['mapping'],
                            network_info=network_info,
                            block_device_info=None, inject_files=False,
                            fallback_from_host=migration.source_compute)
@@ -7390,7 +7417,7 @@ class LibvirtDriver(driver.ComputeDriver):
             # out of 5 backends in imagebackend and defends against a severe
             # security flaw which is not at all obvious without deep analysis,
             # and is therefore undesirable to developers. We should aim to
-            # remove it. This will not be possible, though, until we can
+            # remove ilt. This will not be possible, though, until we can
             # represent the storage layout of a specific instance
             # independent of the default configuration of the local compute
             # host.

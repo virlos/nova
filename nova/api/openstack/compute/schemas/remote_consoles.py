@@ -79,12 +79,37 @@ get_serial_console = {
                     'type': 'string',
                     'enum': ['serial'],
                 },
+                'serial_port': {
+                    'type': 'int',
+                },
             },
-            'required': ['type'],
+            'required': [], # ['type'],
             'additionalProperties': False,
         },
     },
     'required': ['os-getSerialConsole'],
+    'additionalProperties': False,
+}
+
+get_serial_port = {
+    'type': 'object',
+    'properties': {
+        'os-getSerialPort': {
+            'type': 'object',
+            'properties': {
+                'type': {
+                    'type': 'string',
+                    'enum': ['serial'],
+                },
+                'serial_port': {
+                    'type': 'int',
+                },
+            },
+            'required': [], # ['type'],
+            'additionalProperties': False,
+        },
+    },
+    'required': ['os-getSerialPort'],
     'additionalProperties': False,
 }
 

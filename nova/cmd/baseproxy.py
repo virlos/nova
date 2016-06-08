@@ -43,7 +43,7 @@ def exit_with_error(msg, errno=-1):
     sys.exit(errno)
 
 
-def proxy(host, port):
+def proxy(host, port, target_host=None):
 
     if CONF.ssl_only and not os.path.exists(CONF.cert):
         exit_with_error("SSL only and %s not found" % CONF.cert)
@@ -69,6 +69,7 @@ def proxy(host, port):
         record=CONF.record,
         traffic=CONF.verbose and not CONF.daemon,
         web=CONF.web,
+        target_host=target_host,
         file_only=True,
         RequestHandlerClass=websocketproxy.NovaProxyRequestHandler
     ).start_server()

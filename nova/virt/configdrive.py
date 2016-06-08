@@ -17,7 +17,10 @@
 
 import os
 import shutil
+import gzip
+import cStringIO as StringIO
 
+from oslo_log import log as logging
 from oslo_config import cfg
 from oslo_utils import fileutils
 from oslo_utils import units
@@ -26,6 +29,9 @@ from nova import exception
 from nova.objects import fields
 from nova import utils
 from nova import version
+
+
+LOG = logging.getLogger(__name__)
 
 configdrive_opts = [
     cfg.StrOpt('config_drive_format',
@@ -51,12 +57,58 @@ CONFIGDRIVESIZE_BYTES = 64 * units.Mi
 class ConfigDriveBuilder(object):
     """Build config drives, optionally as a context manager."""
 
-    def __init__(self, instance_md=None):
+    def __init__(self, disk_type, instance_md=None, files=None):
+        # valid disk types:
+        # cloud-init (default): an ISO or VFAT Openstack-style cloud-init FS
+        # cloud-init-iso9660, cloud-init-vfat: as above but type specified
+        #     rather than pulled from config
+        # cdrom, disk: a raw, gzipped device image in file /__config_drive_image__
+        # iso9660, vfat: all injected files in whichever FS format
+
+        self.device_type = None
         self.imagefile = None
         self.mdfiles = []
 
         if instance_md is not None:
             self.add_instance_metadata(instance_md)
+
+        if disk_type in ['cloud-init', 'cloud-init-iso9660',
+                         'cloud-init-vfat']:
+            if instance_md is not None:
+                self.add_instance_metadata(instance_md)
+            if disk_type == 'cloud-init':
+                self.fs_type = CONF.config_drive_format
+            elif disk_type == 'cloud-init-vfat':
+                self.fs_type = 'vfat'
+            else:
+                self.fs_type = 'iso9660'
+
+        elif disk_type in ['vfat', 'iso9660']:
+            if files is not None:
+                self.add_raw_files(files)
+
+            self.fs_type = disk_type
+
+        elif disk_type in ['cdrom', 'disk']:
+            gzip_image = ''
+            if files is not None:
+                for (idx, v) in enumerate(files):
+                    (path, value) = v
+                    if path == '/__config_drive_image__':
+                        gzip_image = value
+                        del files[idx]
+                        break
+
+            self.compressed_fs = gzip_image
+            self.device_type = disk_type
+            self.fs_type = None
+
+        else:
+            raise exception.ConfigDriveUnknownFormatEx(
+                format=disk_type)
+
+        LOG.debug("Config drive disk type: %s, fs type: %s"
+                  % (disk_type, self.fs_type))
 
     def __enter__(self):
         return self
@@ -79,6 +131,18 @@ class ConfigDriveBuilder(object):
     def add_instance_metadata(self, instance_md):
         for (path, data) in instance_md.metadata_for_config_drive():
             self.mdfiles.append((path, data))
+
+    def add_raw_files(self, files):
+        for (path, value) in files:
+            # Create a root-based, normalised version of the path -
+            # gets rid of '..'s and other dangers
+            path = os.path.normpath(os.path.join("/", path))
+            # Convert this to a relative path by removing the leading '/'
+            path = path[1:]
+            # Reuse mdfiles list to write the files at the correct time
+            self.mdfiles.append((path, value))
+            LOG.debug('Added %(filepath)s to config drive',
+                      {'filepath': path})
 
     def _write_md_files(self, basedir):
         for data in self.mdfiles:
@@ -132,8 +196,11 @@ class ConfigDriveBuilder(object):
                 # because the destination directory already
                 # exists. This is annoying.
                 for ent in os.listdir(tmpdir):
-                    shutil.copytree(os.path.join(tmpdir, ent),
-                                    os.path.join(mountdir, ent))
+                    src = os.path.join(tmpdir, ent)
+                    if os.path.isfile(src):
+                        shutil.copy(src, mountdir)
+                    else:
+                        shutil.copytree(src, os.path.join(mountdir, ent))
 
             finally:
                 if mounted:
@@ -146,16 +213,33 @@ class ConfigDriveBuilder(object):
 
         :raises ProcessExecuteError if a helper process has failed.
         """
-        with utils.tempdir() as tmpdir:
-            self._write_md_files(tmpdir)
+        if self.fs_type is None:  # a raw image
+            LOG.debug("Unpacking compressed config drive image")
+            buffer = StringIO.StringIO(self.compressed_fs)
+            with gzip.GzipFile(fileobj=buffer, mode='rb') \
+                    as gbuffer:
+                # TODO(ijw): danger of memory consumption
+                decompressed = gbuffer.read()
 
-            if CONF.config_drive_format == 'iso9660':
+                # write the contents as a local disk file
+                with open(path, 'wb') as conf_drive:
+                    conf_drive.write(decompressed)
+            # device_type previously set
+
+        elif self.fs_type == 'iso9660':
+            with utils.tempdir() as tmpdir:
+                self._write_md_files(tmpdir)
                 self._make_iso9660(path, tmpdir)
-            elif CONF.config_drive_format == 'vfat':
+            self.device_type = 'cdrom'
+        elif self.fs_type == 'vfat':
+            with utils.tempdir() as tmpdir:
+                self._write_md_files(tmpdir)
                 self._make_vfat(path, tmpdir)
-            else:
-                raise exception.ConfigDriveUnknownFormat(
-                    format=CONF.config_drive_format)
+            self.device_type = 'disk'
+        else:
+            raise exception.ConfigDriveUnknownFormatEx(
+                format=self.fs_type)
+        LOG.debug("Config drive device type: %s" % (self.device_type))
 
     def cleanup(self):
         if self.imagefile:

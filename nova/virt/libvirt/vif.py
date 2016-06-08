@@ -23,6 +23,7 @@ import os
 from oslo_concurrency import processutils
 from oslo_config import cfg
 from oslo_log import log as logging
+from oslo_utils import strutils
 
 from nova import exception
 from nova.i18n import _
@@ -109,8 +110,11 @@ class LibvirtGenericVIFDriver(object):
         # If the user has specified a 'vif_model' against the
         # image then honour that model
         if image_meta:
-            model = osinfo.HardwareProperties(image_meta).network_model
-
+            #model = osinfo.HardwareProperties(image_meta).network_model
+            model = image_meta.properties.get('hw_vif_model', None)
+            disable_csum = image_meta.properties.get('hw_vif_disable_csum', '')
+            #if disable_csum.lower() in ('yes', '1', 'true'):
+            conf.disable_csum = strutils.bool_from_string
         # Else if the virt type is KVM/QEMU, use virtio according
         # to the global config parameter
         if (model is None and
@@ -756,6 +760,10 @@ class LibvirtGenericVIFDriver(object):
         func(instance, vif)
 
     def unplug_bridge(self, instance, vif):
+        """No manual unplugging required."""
+        pass
+
+    def unplug_binding_failed(self, instance, vif):
         """No manual unplugging required."""
         pass
 
