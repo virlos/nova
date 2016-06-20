@@ -199,6 +199,13 @@ class ImageMetaProps(base.NovaObject):
     # 'os_' - settings affecting the guest operating system setup
 
     fields = {
+        'config_disk_type': fields.StringField(),
+        'serial': fields.IntegerField(),
+        'hw_bios': fields.StringField(),
+        'hw_hpet': fields.FlexibleBooleanField(),
+        'hw_vif_disable_csum': fields.FlexibleBooleanField(),
+        'hw_usb_tablet': fields.FlexibleBooleanField(),
+
         # name of guest hardware architecture eg i686, x86_64, ppc64
         'hw_architecture': fields.ArchitectureField(),
 

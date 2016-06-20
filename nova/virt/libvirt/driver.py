@@ -4713,7 +4713,7 @@ class LibvirtDriver(driver.ComputeDriver):
         need_usb_tablet = image_meta.properties.get('hw_usb_tablet', None)
         if need_usb_tablet is not None:
             need_usb_tablet = strutils.bool_from_string(need_usb_tablet)
-        elif CONF.vnc_enabled:
+        elif CONF.vnc.enabled:
             need_usb_tablet = CONF.libvirt.use_usb_tablet
         elif CONF.spice.enabled and not CONF.spice.agent_enabled:
             need_usb_tablet = CONF.libvirt.use_usb_tablet
