@@ -4612,11 +4612,11 @@ class LibvirtDriver(driver.ComputeDriver):
                 flavor, virt_type, self._host)
             guest.add_device(config)
 
-        consolepty = self._create_consoles(virt_type, guest, instance, flavor,
-                                           image_meta, caps)
-        if virt_type != 'parallels':
-            consolepty.type = "pty"
-            guest.add_device(consolepty)
+        #consolepty = self._create_consoles(virt_type, guest, instance, flavor,
+        #                                   image_meta, caps)
+        #if virt_type != 'parallels':
+        #    consolepty.type = "pty"
+        #    guest.add_device(consolepty)
 
         tablet = self._get_guest_usb_tablet(guest.os_type, image_meta)
         if tablet:

@@ -168,7 +168,9 @@ class RemoteConsolesController(wsgi.Controller):
     @validation.schema(remote_consoles.get_serial_port)
     def get_serial_port(self, req, id, body):
         """Get connection to a serial console."""
-        return self.get_serial_console(req, id, body)
+        body['os-getSerialConsole'] = body['os-getSerialPort']
+        del body['os-getSerialPort']
+        return self.get_serial_console(req=req, id=id, body=body)
 
     @wsgi.Controller.api_version("2.6")
     @extensions.expected_errors((400, 404, 409, 501))

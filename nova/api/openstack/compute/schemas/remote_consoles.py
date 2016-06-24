@@ -80,7 +80,7 @@ get_serial_console = {
                     'enum': ['serial'],
                 },
                 'serial_port': {
-                    'type': 'int',
+                    'type': 'integer',
                 },
             },
             'required': [], # ['type'],
@@ -102,7 +102,7 @@ get_serial_port = {
                     'enum': ['serial'],
                 },
                 'serial_port': {
-                    'type': 'int',
+                    'type': 'integer',
                 },
             },
             'required': [], # ['type'],
