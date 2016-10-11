@@ -224,6 +224,20 @@ class DiskBus(Enum):
             valid_values=DiskBus.ALL)
 
 
+class CpuMode(Enum):
+
+    HOST_MODEL = "host-model"
+    HOST_PASSTHROUGH = "host-passthrough"
+    CUSTOM = "custom"
+    NONE = "none"
+
+    ALL = (HOST_MODEL, HOST_PASSTHROUGH, CUSTOM, NONE)
+
+    def __init__(self):
+        super(CpuMode, self).__init__(
+            valid_values=CpuMode.ALL)
+
+
 class FirmwareType(Enum):
 
     UEFI = "uefi"
@@ -780,6 +794,10 @@ class CPUFeaturePolicyField(BaseEnumField):
 
 class DiskBusField(BaseEnumField):
     AUTO_TYPE = DiskBus()
+
+
+class CpuModeField(BaseEnumField):
+    AUTO_TYPE = CpuMode()
 
 
 class FirmwareTypeField(BaseEnumField):
