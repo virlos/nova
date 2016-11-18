@@ -1580,13 +1580,10 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase):
         # files deletion for those instances whose instance.host is not
         # same as compute host where periodic task is running.
         for inst in fake_instances:
-            for mig in fake_migrations:
-                if inst.uuid == mig.instance_uuid:
-                    self.assertEqual('failed', mig.status)
-
-        # Make sure we filtered the instances by host in the DB query.
-        self.assertEqual(CONF.host,
-                         mock_inst_get_by_filters.call_args[0][1]['host'])
+            if inst.host != CONF.host:
+                for mig in fake_migrations:
+                    if inst.uuid == mig.instance_uuid:
+                        self.assertEqual('failed', mig.status)
 
     def test_cleanup_incomplete_migrations_dest_node(self):
         """Test to ensure instance files are deleted from destination node.
@@ -2173,6 +2170,7 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase):
     @mock.patch('nova.objects.Instance._from_db_object')
     def test_remove_volume_connection(self, inst_from_db, detach, bdm_get):
         bdm = mock.sentinel.bdm
+        bdm.connection_info = jsonutils.dumps({})
         inst_obj = mock.Mock()
         inst_obj.uuid = 'uuid'
         bdm_get.return_value = bdm
@@ -2180,7 +2178,7 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase):
         with mock.patch.object(self.compute, 'volume_api'):
             self.compute.remove_volume_connection(self.context, 'vol',
                                                   inst_obj)
-        detach.assert_called_once_with(self.context, inst_obj, bdm)
+        detach.assert_called_once_with(self.context, inst_obj, bdm, {})
         bdm_get.assert_called_once_with(self.context, 'vol', 'uuid')
 
     def test_detach_volume(self):
@@ -2198,10 +2196,12 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase):
         volume_id = uuids.volume
         inst_obj = mock.Mock()
         inst_obj.uuid = uuids.instance
+        inst_obj.host = CONF.host
         attachment_id = uuids.attachment
 
         bdm = mock.MagicMock(spec=objects.BlockDeviceMapping)
         bdm.device_name = 'vdb'
+        bdm.connection_info = jsonutils.dumps({})
         bdm_get.return_value = bdm
 
         detach.return_value = {}
@@ -2216,7 +2216,7 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase):
                                             destroy_bdm=destroy_bdm,
                                             attachment_id=attachment_id)
 
-                detach.assert_called_once_with(self.context, inst_obj, bdm)
+                detach.assert_called_once_with(self.context, inst_obj, bdm, {})
                 driver.get_volume_connector.assert_called_once_with(inst_obj)
                 volume_api.terminate_connection.assert_called_once_with(
                     self.context, volume_id, connector_sentinel)
@@ -2292,6 +2292,7 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase):
                                             instance,
                                             destroy_bdm=False)
 
+                driver._driver_detach_volume.assert_not_called()
                 driver.get_volume_connector.assert_called_once_with(instance)
                 volume_api.terminate_connection.assert_called_once_with(
                     self.context, volume_id, expected_connector)
@@ -2303,22 +2304,6 @@ class ComputeManagerUnitTestCase(test.NoDBTestCase):
                     self.context, instance, "volume.detach",
                     extra_usage_info={'volume_id': volume_id}
                 )
-
-    def test__driver_detach_volume_return(self):
-        """_driver_detach_volume returns the connection_info from loads()."""
-        with mock.patch.object(jsonutils, 'loads') as loads:
-            conn_info_str = 'test-expected-loads-param'
-            bdm = mock.Mock()
-            bdm.connection_info = conn_info_str
-            loads.return_value = {'test-loads-key': 'test loads return value'}
-            instance = fake_instance.fake_instance_obj(self.context)
-
-            ret = self.compute._driver_detach_volume(self.context,
-                                                     instance,
-                                                     bdm)
-
-            self.assertEqual(loads.return_value, ret)
-            loads.assert_called_once_with(conn_info_str)
 
     def _test_rescue(self, clean_shutdown=True):
         instance = fake_instance.fake_instance_obj(

@@ -1843,6 +1843,7 @@ def _check_instance_exists_in_project(context, instance_uuid):
 
 
 @require_context
+@oslo_db_api.wrap_db_retry(max_retries=5, retry_on_deadlock=True)
 @pick_context_manager_writer
 def instance_create(context, values):
     """Create a new Instance record in the database.
@@ -1951,6 +1952,9 @@ def instance_destroy(context, instance_uuid, constraint=None):
             soft_delete()
     model_query(context, models.InstanceGroupMember).\
             filter_by(instance_id=instance_uuid).\
+            soft_delete()
+    model_query(context, models.BlockDeviceMapping).\
+            filter_by(instance_uuid=instance_uuid).\
             soft_delete()
     # NOTE(snikitin): We can't use model_query here, because there is no
     # column 'deleted' in 'tags' table.
@@ -4329,7 +4333,11 @@ def security_group_get_all(context):
 @require_context
 @main_context_manager.reader
 def security_group_get(context, security_group_id, columns_to_join=None):
-    query = _security_group_get_query(context, project_only=True).\
+    join_rules = columns_to_join and 'rules' in columns_to_join
+    if join_rules:
+        columns_to_join.remove('rules')
+    query = _security_group_get_query(context, project_only=True,
+                                      join_rules=join_rules).\
                     filter_by(id=security_group_id)
 
     if columns_to_join is None:
@@ -4768,7 +4776,7 @@ def migration_get_in_progress_by_host_and_node(context, host, node):
                             models.Migration.dest_node == node))).\
             filter(~models.Migration.status.in_(['accepted', 'confirmed',
                                                  'reverted', 'error',
-                                                 'failed'])).\
+                                                 'failed', 'completed'])).\
             options(joinedload_all('instance.system_metadata')).\
             all()
 
@@ -6285,6 +6293,49 @@ def task_log_end_task(context, task_name, period_beginning, period_ending,
 ##################
 
 
+def _archive_if_instance_deleted(table, shadow_table, instances, conn,
+                                 max_rows):
+    """Look for records that pertain to deleted instances, but may not be
+    deleted themselves. This catches cases where we delete an instance,
+    but leave some residue because of a failure in a cleanup path or
+    similar.
+
+    Logic is: if I have a column called instance_uuid, and that instance
+    is deleted, then I can be deleted.
+    """
+    # NOTE(guochbo): There is a circular import, nova.db.sqlalchemy.utils
+    # imports nova.db.sqlalchemy.api.
+    from nova.db.sqlalchemy import utils as db_utils
+
+    query_insert = shadow_table.insert(inline=True).\
+        from_select(
+            [c.name for c in table.c],
+            sql.select(
+                [table],
+                and_(instances.c.deleted != instances.c.deleted.default.arg,
+                     instances.c.uuid == table.c.instance_uuid)).
+            order_by(table.c.id).limit(max_rows))
+
+    query_delete = sql.select(
+        [table.c.id],
+        and_(instances.c.deleted != instances.c.deleted.default.arg,
+             instances.c.uuid == table.c.instance_uuid)).\
+        order_by(table.c.id).limit(max_rows)
+    delete_statement = db_utils.DeleteFromSelect(table, query_delete,
+                                                 table.c.id)
+
+    try:
+        with conn.begin():
+            conn.execute(query_insert)
+            result_delete = conn.execute(delete_statement)
+            return result_delete.rowcount
+    except db_exc.DBReferenceError as ex:
+        LOG.warning(_LW('Failed to archive %(table)s: %(error)s'),
+                    {'table': table.__tablename__,
+                     'error': six.text_type(ex)})
+        return 0
+
+
 def _archive_deleted_rows_for_table(tablename, max_rows):
     """Move up to max_rows rows from one tables to the corresponding
     shadow table.
@@ -6323,6 +6374,35 @@ def _archive_deleted_rows_for_table(tablename, max_rows):
     # database's limit of maximum parameter in one SQL statement.
     deleted_column = table.c.deleted
     columns = [c.name for c in table.c]
+
+    # NOTE(clecomte): Tables instance_actions and instances_actions_events
+    # have to be manage differently so we soft-delete them here to let
+    # the archive work the same for all tables
+    if tablename == "instance_actions":
+        instances = models.BASE.metadata.tables["instances"]
+        deleted_instances = sql.select([instances.c.uuid]).\
+            where(instances.c.deleted != instances.c.deleted.default.arg)
+        update_statement = table.update().values(deleted=table.c.id).\
+            where(table.c.instance_uuid.in_(deleted_instances))
+
+        conn.execute(update_statement)
+
+    elif tablename == "instance_actions_events":
+        # NOTE(clecomte): we have to grab all the relation from
+        # instances because instance_actions_events rely on
+        # action_id and not uuid
+        instances = models.BASE.metadata.tables["instances"]
+        instance_actions = models.BASE.metadata.tables["instance_actions"]
+        deleted_instances = sql.select([instances.c.uuid]).\
+            where(instances.c.deleted != instances.c.deleted.default.arg)
+        deleted_actions = sql.select([instance_actions.c.id]).\
+            where(instance_actions.c.instance_uuid.in_(deleted_instances))
+
+        update_statement = table.update().values(deleted=table.c.id).\
+            where(table.c.action_id.in_(deleted_actions))
+
+        conn.execute(update_statement)
+
     insert = shadow_table.insert(inline=True).\
         from_select(columns,
                     sql.select([table],
@@ -6338,16 +6418,22 @@ def _archive_deleted_rows_for_table(tablename, max_rows):
         with conn.begin():
             conn.execute(insert)
             result_delete = conn.execute(delete_statement)
+        rows_archived = result_delete.rowcount
     except db_exc.DBReferenceError as ex:
         # A foreign key constraint keeps us from deleting some of
         # these rows until we clean up a dependent table.  Just
         # skip this table for now; we'll come back to it later.
         LOG.warning(_LW("IntegrityError detected when archiving table "
-                     "%(tablename)s: %(error)s"),
-                 {'tablename': tablename, 'error': six.text_type(ex)})
-        return rows_archived
+                        "%(tablename)s: %(error)s"),
+                    {'tablename': tablename, 'error': six.text_type(ex)})
 
-    rows_archived = result_delete.rowcount
+    if ((max_rows is None or rows_archived < max_rows)
+            and 'instance_uuid' in columns):
+        instances = models.BASE.metadata.tables['instances']
+        limit = max_rows - rows_archived if max_rows is not None else None
+        extra = _archive_if_instance_deleted(table, shadow_table, instances,
+                                             conn, limit)
+        rows_archived += extra
 
     return rows_archived
 
