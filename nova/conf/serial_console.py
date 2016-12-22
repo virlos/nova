@@ -177,13 +177,30 @@ Interdependencies to other options:
   ``base_url`` of this section.
 """)
 
+redis_port_opt = cfg.StrOpt("redis_hostname",
+                            default="localhost",
+                            help="""
+Hostname of controller running redis. Defaults to localhost
+""")
+
+redis_hostname_opt = cfg.IntOpt('redis_port',
+                                default=6379,
+                                min=1,
+                                max=65535,
+                                help="""
+Port of redis instance running on controller. Defaults to 6379
+""")
+
+
 ALL_OPTS = [enabled_opt,
             port_range_opt,
             base_url_opt,
             listen_opt,
             proxyclient_address_opt,
             serialproxy_host_opt,
-            serialproxy_port_opt]
+            serialproxy_port_opt,
+            redis_hostname_opt,
+            redis_port_opt]
 
 
 def register_opts(conf):
