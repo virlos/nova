@@ -37,8 +37,10 @@ import struct
 import sys
 import tempfile
 import time
+import fcntl
 from xml.sax import saxutils
 from lxml import etree
+from operator import itemgetter
 
 import eventlet
 import netaddr
@@ -1538,3 +1540,51 @@ def parse_serial_ports(xml):
         return ports
     except Exception as E:
         return [None] * 4
+
+
+def local_if_ip_and_mac():
+    """Return local main public interface, its IP and MAC addresses
+
+    It returns the IP and MAC addresses of the interface with the default
+    route. If there are multiple, the one with the smallest metric is selected.
+
+    """
+    with open('/proc/net/route') as fp:
+        route_table = map(lambda line: line.strip().split('\t'),
+                          fp.readlines()[1:])
+
+    IFNAME, DST, MASK, METRIC, DEFAULT = 0, 1, 7, 6, '00000000'
+
+    def is_default(route):
+        return route[DST] == DEFAULT and route[MASK] == DEFAULT
+
+    default_route = sorted(filter(is_default, route_table),
+                           key=itemgetter(METRIC))
+    if len(default_route) == 0:
+        interface = 'lo'
+    else:
+        interface = default_route[0][IFNAME]
+
+    ip, mac = interface_ip_and_mac(interface=interface)
+
+    return interface, ip, mac
+
+
+def interface_ip_and_mac(interface):
+    """Return IP address and MAC of a host interface"""
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sockfd = sock.fileno()
+
+    SIOCGIFADDR = 0x8915
+    SIOCGIFHWADDR = 0x8927
+    pack = '16sH14s'
+
+    ifreq = struct.pack(pack, str(interface), socket.AF_INET, '\x00' * 14)
+    resip = fcntl.ioctl(sockfd, SIOCGIFADDR, ifreq)
+    reshw = fcntl.ioctl(sockfd, SIOCGIFHWADDR, ifreq)
+
+    return socket.inet_ntoa(resip[-12:-8]), reshw[-14:-8].encode('hex')
+
+def local_ip()
+    _, ip, _ = local_if_ip_and_mac()
+    return ip
