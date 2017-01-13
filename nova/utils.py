@@ -24,11 +24,13 @@ import errno
 import functools
 import hashlib
 import inspect
+import json
 import logging as std_logging
 import os
 import pyclbr
 import random
 import re
+import redis
 import shutil
 import socket
 import struct
@@ -36,6 +38,7 @@ import sys
 import tempfile
 import time
 from xml.sax import saxutils
+from lxml import etree
 
 import eventlet
 import netaddr
@@ -58,6 +61,11 @@ from nova import exception
 from nova.i18n import _, _LE, _LI, _LW
 import nova.network
 from nova import safe_utils
+import nova.conf
+from nova.conf import serial_console as serial
+
+CONF = nova.conf.CONF
+# serial.register_cli_opts(CONF)
 
 notify_decorator = 'nova.notifications.notify_decorator'
 
@@ -1487,3 +1495,46 @@ def isotime(at=None):
 
 def strtime(at):
     return at.strftime("%Y-%m-%dT%H:%M:%S.%f")
+
+
+class RedisUnavailable(Exception):
+    pass
+
+
+def push_node_info(sim_id, node_id, user_id, host, ports):
+    port_0, port_1, port_2, port_3 = ports
+    redis_host = CONF.serial_console.redis_hostname
+    redis_port = CONF.serial_console.redis_port
+    redis_instance = redis.StrictRedis(redis_host, redis_port)
+    pipe = redis_instance.pipeline()
+    d = {
+        "user_id": user_id,
+        "sim_id": sim_id,
+        "node_id": node_id,
+        "host": host,
+        "port_0": port_0,
+        "port_1": port_1,
+        "port_2": port_2,
+        "port_3": port_3
+    }
+    json_payload = json.dumps(d)
+    pipe.lpush("node_info", json_payload)
+    try:
+        pipe.execute()
+    except Exception as E:
+        raise RedisUnavailable("Could not contact redis at "
+                               "{}:{}.\nCause: {}".format(
+                redis_host, redis_port, E.message))
+
+
+def parse_serial_ports(xml):
+    ports = [None] * 4
+    try:
+        root = etree.fromstring(xml)
+        tree = etree.ElementTree(root)
+        serials = tree.findall("//serial/source/[@service]")
+        for index, port in enumerate(serials):
+            ports[index] = int(port.get("service"))
+        return ports
+    except Exception as E:
+        return [None] * 4
