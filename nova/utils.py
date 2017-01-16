@@ -1585,6 +1585,6 @@ def interface_ip_and_mac(interface):
 
     return socket.inet_ntoa(resip[-12:-8]), reshw[-14:-8].encode('hex')
 
-def local_ip()
+def local_ip():
     _, ip, _ = local_if_ip_and_mac()
     return ip
