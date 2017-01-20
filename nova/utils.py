@@ -1542,10 +1542,10 @@ def parse_serial_ports(xml):
         return [None] * 4
 
 
-def local_if_ip_and_mac():
-    """Return local main public interface, its IP and MAC addresses
+def local_if_ip():
+    """Return local main public interface, its IP address
 
-    It returns the IP and MAC addresses of the interface with the default
+    It returns the IP address of the interface with the default
     route. If there are multiple, the one with the smallest metric is selected.
 
     """
@@ -1565,26 +1565,24 @@ def local_if_ip_and_mac():
     else:
         interface = default_route[0][IFNAME]
 
-    ip, mac = interface_ip_and_mac(interface=interface)
+    ip = interface_ip(interface=interface)
 
-    return interface, ip, mac
+    return interface, ip
 
 
-def interface_ip_and_mac(interface):
-    """Return IP address and MAC of a host interface"""
+def interface_ip(interface):
+    """Return IP address of a host interface"""
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sockfd = sock.fileno()
 
     SIOCGIFADDR = 0x8915
-    SIOCGIFHWADDR = 0x8927
     pack = '16sH14s'
 
     ifreq = struct.pack(pack, str(interface), socket.AF_INET, '\x00' * 14)
     resip = fcntl.ioctl(sockfd, SIOCGIFADDR, ifreq)
-    reshw = fcntl.ioctl(sockfd, SIOCGIFHWADDR, ifreq)
 
-    return socket.inet_ntoa(resip[-12:-8]), reshw[-14:-8].encode('hex')
+    return socket.inet_ntoa(resip[-12:-8])
 
 def local_ip():
-    _, ip, _ = local_if_ip_and_mac()
+    _, ip = local_if_ip()
     return ip
