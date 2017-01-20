@@ -178,9 +178,9 @@ Interdependencies to other options:
 """)
 
 redis_port_opt = cfg.StrOpt("redis_hostname",
-                            default="localhost",
+                            default="controller",
                             help="""
-Hostname of controller running redis. Defaults to localhost
+Hostname of controller running redis. Defaults to the 'controller' hostname
 """)
 
 redis_hostname_opt = cfg.IntOpt('redis_port',
