@@ -49,6 +49,17 @@ serial_opts = [
                default='127.0.0.1',
                help='The address to which proxy clients '
                     '(like nova-serialproxy) should connect'),
+    cfg.StrOpt('redis_hostname',
+               default='controller',
+               help='Hostname of controller running redis. Defaults to the '
+                    '\'controller\' hostname'),
+    cfg.IntOpt('redis_port',
+               default=6379,
+               min=1,
+               max=65535,
+               help='Port of redis instance running on controller. '
+                    'Defaults to 6379'
+               )
     ]
 
 CONF = cfg.CONF
