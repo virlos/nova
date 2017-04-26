@@ -493,7 +493,7 @@ class InstanceMetadata(object):
                 path = 'openstack/%s/%s' % (version, VD_JSON_NAME)
                 yield (path, self.lookup(path))
 
-            if self._check_version(LIBERTY, version, ALL_OPENSTACK_VERSIONS):
+            if False and self._check_version(LIBERTY, version, ALL_OPENSTACK_VERSIONS):
                 path = 'openstack/%s/%s' % (version, NW_JSON_NAME)
                 yield (path, self.lookup(path))
 
