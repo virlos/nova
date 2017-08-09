@@ -2789,9 +2789,9 @@ class LibvirtDriver(driver.ComputeDriver):
         node_id = metadata.get("node_id")
         sim_id = metadata.get("simulation_id")
         user_id = metadata.get("user_id")
-        LOG.info("Pushing port info for node {} of simulation {}".format(node_id, sim_id))
+        LOG.info("Pushing port info for node %s of simulation %s", node_id, sim_id)
         utils.push_node_info(sim_id, node_id, user_id, host, ports)
-        LOG.debug("Instance is running", instance=instance)
+        LOG.debug("Instance %s is running", instance)
 
         def _wait_for_boot():
             """Called at an interval until the VM is running."""
