@@ -347,7 +347,7 @@ DISABLE_REASON_UNDEFINED = None
 
 # Guest config console string
 CONSOLE = "console=tty0 console=ttyS0"
-REAL_SERIAL_HOST = "::1"
+REAL_SERIAL_HOST = "::"
 
 GuestNumaConfig = collections.namedtuple(
     'GuestNumaConfig', ['cpuset', 'cputune', 'numaconfig', 'numatune'])
