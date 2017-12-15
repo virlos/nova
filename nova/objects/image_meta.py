@@ -202,6 +202,7 @@ class ImageMetaProps(base.NovaObject):
         'config_disk_type': fields.StringField(),
         'serial': fields.IntegerField(),
         'hw_bios': fields.StringField(),
+        'hw_emulator': fields.StringField(),
         'hw_hpet': fields.FlexibleBooleanField(),
         'hw_vif_disable_csum': fields.FlexibleBooleanField(),
         'hw_usb_tablet': fields.FlexibleBooleanField(),

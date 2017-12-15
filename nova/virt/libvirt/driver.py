@@ -508,6 +508,8 @@ MIN_QEMU_OTHER_ARCH = {arch.S390: MIN_QEMU_S390_VERSION,
                        arch.PPC64LE: MIN_QEMU_PPC64_VERSION,
                       }
 
+EMULATOR_BINDIR = "/usr/bin"
+
 
 class LibvirtDriver(driver.ComputeDriver):
     capabilities = {
@@ -1515,6 +1517,9 @@ class LibvirtDriver(driver.ComputeDriver):
                     instance_uuid=instance.uuid)
 
     def detach_interface(self, instance, vif):
+        LOG.info('Detach vif on instance "%s" in task_state "%s"', instance.uuid, instance.task_state)
+        if instance.task_state in (task_states.DELETING,):
+            return
         guest = self._host.get_guest(instance)
         cfg = self.vif_driver.get_config(instance, vif,
                                          instance.image_meta,
@@ -4440,6 +4445,10 @@ class LibvirtDriver(driver.ComputeDriver):
             if hw_bios:
                 hw_bios = os.path.basename(hw_bios)
                 guest.os_loader = hw_bios
+            hw_emulator = image_meta.properties.get('hw_emulator', None)
+            if hw_emulator:
+                hw_emulator = os.path.join(EMULATOR_BINDIR, os.path.basename(hw_emulator))
+                guest.emulator = hw_emulator
         elif virt_type == "lxc":
             guest.os_init_path = "/sbin/init"
             guest.os_cmdline = CONSOLE

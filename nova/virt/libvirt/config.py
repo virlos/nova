@@ -1953,6 +1953,7 @@ class LibvirtConfigGuest(LibvirtConfigObject):
         self.features = []
         self.clock = None
         self.sysinfo = None
+        self.emulator = None
         self.os_type = None
         self.os_loader = None
         self.os_loader_type = None
@@ -2042,6 +2043,8 @@ class LibvirtConfigGuest(LibvirtConfigObject):
         if len(self.devices) == 0:
             return
         devices = etree.Element("devices")
+        if self.emulator:
+            devices.append(self._text_node("emulator", self.emulator))
         for dev in self.devices:
             devices.append(dev.format_dom())
         root.append(devices)
