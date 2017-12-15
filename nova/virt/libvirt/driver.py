@@ -1517,9 +1517,9 @@ class LibvirtDriver(driver.ComputeDriver):
                     instance_uuid=instance.uuid)
 
     def detach_interface(self, instance, vif):
-        LOG.info('Detach vif on instance "%s" in task_state "%s"', instance.uuid, instance.task_state)
-        if instance.task_state in (task_states.DELETING,):
-            return
+        # Since we don't detach interfaces in VIRL at all, just return.
+        return
+        
         guest = self._host.get_guest(instance)
         cfg = self.vif_driver.get_config(instance, vif,
                                          instance.image_meta,
@@ -2794,9 +2794,9 @@ class LibvirtDriver(driver.ComputeDriver):
         node_id = metadata.get("node_id")
         sim_id = metadata.get("simulation_id")
         user_id = metadata.get("user_id")
-        LOG.info(_("Pushing port info for node %s of simulation %s"), node_id, sim_id)
+        LOG.info(_("Pushing port info for node {} of simulation {}").format(node_id, sim_id))
         utils.push_node_info(sim_id, node_id, user_id, host, ports)
-        LOG.debug(_("Instance %s is running"), instance)
+        LOG.debug(_("Instance is running"), instance=instance)
 
         def _wait_for_boot():
             """Called at an interval until the VM is running."""
